@@ -26,11 +26,12 @@ static func build(root: Node2D, level_index: int) -> void:
 	root.add_child(entities)
 	_build_bounds(root)
 	var camera := _build_camera(root, level_index)
+	var sign_texts := _collect_sign_texts(rows)
 	for r in rows.size():
 		var row: String = rows[r]
 		for c in row.length():
 			var ch: String = row.substr(c, 1)
-			_place(terrain, decor, entities, ch, c, r, rows, level_index)
+			_place(terrain, decor, entities, ch, c, r, rows, level_index, sign_texts)
 	_place_player(terrain, entities, camera)
 
 
@@ -64,6 +65,7 @@ static func _place(
 	r: int,
 	rows: Array,
 	level_index: int,
+	sign_texts: Dictionary,
 ) -> void:
 	match ch:
 		"#":
@@ -93,15 +95,68 @@ static func _place(
 			# §7.2: 4 alternating decoration variants (0..3,2).
 			decor.set_cell(Vector2i(c, r), 0, Vector2i((c * 7 + level_index) % 4, 2))
 		"o", "E", "S", "^", "h", "P", "F":
-			_place_entity(entities, ch, c, r)
+			_place_entity(entities, ch, c, r, rows, sign_texts)
 
 
-## §7.2: entity placeholder = Marker2D (real scenes land in M4/M5).
-static func _place_entity(entities: Node2D, ch: String, c: int, r: int) -> void:
-	var marker := Marker2D.new()
-	marker.name = _entity_name(ch, c, r)
-	marker.position = _entity_pos(ch, c, r)
-	entities.add_child(marker)
+## §7.2: real entity scenes (M5). `P` stays a Marker2D ("Spawn") for tests/smoke.
+static func _place_entity(
+	entities: Node2D,
+	ch: String,
+	c: int,
+	r: int,
+	rows: Array,
+	sign_texts: Dictionary,
+) -> void:
+	if ch == "P":
+		var marker := Marker2D.new()
+		marker.name = "Spawn"
+		marker.position = _entity_pos(ch, c, r)
+		entities.add_child(marker)
+		return
+	var node: Node2D
+	match ch:
+		"o":
+			node = preload("res://scenes/items/coin.tscn").instantiate()
+		"E":
+			node = preload("res://scenes/enemies/enemy_walker.tscn").instantiate()
+		"S":
+			node = preload("res://scenes/enemies/enemy_spiky.tscn").instantiate()
+		"^":
+			node = preload("res://scenes/items/spike.tscn").instantiate()
+		"h":
+			node = preload("res://scenes/items/sign.tscn").instantiate()
+		"F":
+			node = preload("res://scenes/items/goal_flag.tscn").instantiate()
+	node.name = _entity_name(ch, c, r)
+	node.position = _entity_pos(ch, c, r)
+	match ch:
+		"o":
+			(node as Coin).column = c
+		"E", "S":
+			(node as Enemy).map_rows = rows
+		"h":
+			(node as Sign).text = sign_texts.get("%d_%d" % [c, r], "")
+	entities.add_child(node)
+
+
+## §7.2: 1-1 的 `h` 按列顺序（先列后行）依次取 Levels.SIGN_TEXTS。
+static func _collect_sign_texts(rows: Array) -> Dictionary:
+	var cells: Array[Vector2i] = []
+	for r in rows.size():
+		var row: String = rows[r]
+		for c in row.length():
+			if row.substr(c, 1) == "h":
+				cells.append(Vector2i(c, r))
+	cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		if a.x != b.x:
+			return a.x < b.x
+		return a.y < b.y,
+	)
+	var texts := {}
+	for i in cells.size():
+		var cell: Vector2i = cells[i]
+		texts["%d_%d" % [cell.x, cell.y]] = Levels.SIGN_TEXTS[i] if i < Levels.SIGN_TEXTS.size() else ""
+	return texts
 
 
 static func _entity_name(ch: String, c: int, r: int) -> String:

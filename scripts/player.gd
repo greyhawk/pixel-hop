@@ -21,6 +21,16 @@ var terrain: TileMapLayer = null
 var input_source: InputSource = null
 var facing := 1
 
+## §8 M5: 生命 / 无敌 / 死亡 / 胜利状态。
+var hp := Tuning.MAX_HP
+var dead := false
+var victory := false
+var _iframe_timer := 0.0
+var _hurt_lock := 0.0
+var _death_timer := 0.0
+var _fade_started := false
+var _stomp_chain := 0
+
 var _sprite: AnimatedSprite2D
 var _motor := PlayerMotor.new()
 var _drop_timer := 0.0
@@ -53,11 +63,25 @@ func _build_frames() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if dead:
+		_death_step(delta)
+		return
 	input_source.begin_frame()
-	var dir := int(roundf(input_source.get_axis()))
-	var pressed := input_source.jump_pressed()
-	var released := input_source.jump_released()
-	var down := input_source.down_held()
+	var locked := victory or _hurt_lock > 0.0
+	var dir := int(roundf(input_source.get_axis())) if not locked else 0
+	var pressed := input_source.jump_pressed() if not locked else false
+	var released := input_source.jump_released() if not locked else false
+	var down := input_source.down_held() if not locked else false
+	if _hurt_lock > 0.0:
+		_hurt_lock -= delta
+	if _iframe_timer > 0.0:
+		_iframe_timer -= delta
+		if _iframe_timer <= 0.0:
+			_iframe_timer = 0.0
+			_sprite.visible = true
+		else:
+			# §8: 无敌期间每 IFRAME_BLINK 秒切换一次可见。
+			_sprite.visible = fmod(_iframe_timer, Tuning.IFRAME_BLINK * 2.0) < Tuning.IFRAME_BLINK
 	# 1. 单向平台落下（§9.4）：在地面 + 下压 + 跳按/按住，且脚下是单向
 	if _drop_timer <= 0.0:
 		if is_on_floor() and down and (pressed or input_source.jump_held()) and _on_one_way():
@@ -79,7 +103,10 @@ func _physics_process(delta: float) -> void:
 	var on_floor := is_on_floor()
 	if not _was_on_floor and on_floor and vy_before >= 0.0:
 		landed.emit(vy_before)
-		if vy_before >= Tuning.LAND_PUFF_MIN_VY:
+		_stomp_chain = 0
+		if victory:
+			_sprite.play("victory")
+		elif vy_before >= Tuning.LAND_PUFF_MIN_VY:
 			_sprite.play("land")
 	_was_on_floor = on_floor
 	# 5. 朝向与动画
@@ -87,13 +114,96 @@ func _physics_process(delta: float) -> void:
 	_update_animation()
 
 
-## M6 重生：重置运动学与碰撞状态。
+## M6 重生：重置运动学、碰撞与 M5 伤害/死亡状态。
 func reset_state() -> void:
 	_motor.reset()
 	_drop_timer = 0.0
 	collision_mask = FULL_MASK
 	_was_on_floor = true
 	velocity = Vector2.ZERO
+	hp = Tuning.MAX_HP
+	dead = false
+	victory = false
+	_iframe_timer = 0.0
+	_hurt_lock = 0.0
+	_death_timer = 0.0
+	_fade_started = false
+	_stomp_chain = 0
+	visible = true
+	_sprite.visible = true
+	_sprite.play("idle")
+
+
+## §8: 受击。无敌帧内 / 死亡 / 胜利时忽略。
+## 击退方向远离伤害源（±KNOCKBACK.x, KNOCKBACK.y），锁定控制 HURT_LOCK，
+## 无敌 IFRAMES（期间仍可踩敌）。hp <= 0 → die。
+func damage(source: Vector2, is_spike: bool) -> void:
+	if dead or victory or _iframe_timer > 0.0:
+		return
+	hp -= 1
+	_hurt_lock = Tuning.HURT_LOCK
+	_iframe_timer = Tuning.IFRAMES
+	_sprite.visible = true
+	var dir_sign := signf(global_position.x - source.x)
+	if dir_sign == 0.0:
+		dir_sign = float(facing)
+	velocity = Vector2(dir_sign * Tuning.KNOCKBACK.x, Tuning.KNOCKBACK.y)
+	Audio.play_sfx("sfx_spike" if is_spike else "sfx_hurt")
+	hurt.emit()
+	if hp <= 0:
+		die(false)
+
+
+## §8: 踩敌弹跳（-220 / 按住跳 -300）；连续踩踏音高 ×STOMP_PITCH_STEP，落地重置。
+## 无敌帧期间仍然可以踩敌（仅死亡/胜利忽略）。
+func stomp_bounce(jump_held: bool) -> void:
+	if dead or victory:
+		return
+	velocity.y = Tuning.STOMP_BOUNCE_HELD if jump_held else Tuning.STOMP_BOUNCE
+	_stomp_chain += 1
+	Audio.play_sfx("sfx_stomp", pow(Tuning.STOMP_PITCH_STEP, _stomp_chain))
+	stomped.emit()
+
+
+## §8: 到达终点旗——锁定输入，水平速度按 GROUND_DECEL 衰减，落地播 victory。
+func set_victory() -> void:
+	if dead or victory:
+		return
+	victory = true
+	_stomp_chain = 0
+
+
+## §8: 死亡。from_pit 直接隐藏身体（无物理）；否则播 death 帧、关碰撞、
+## vy = DEATH_POP_VY 上抛，之后只受 GRAVITY_UP。t=DEATH_FADE_AT 拉黑幕 + 发 died。
+func die(from_pit: bool) -> void:
+	if dead or victory:
+		return
+	dead = true
+	_death_timer = 0.0
+	_iframe_timer = 0.0
+	_hurt_lock = 0.0
+	_sprite.visible = true
+	Audio.play_sfx("sfx_death")
+	Audio.stop_bgm()
+	if from_pit:
+		visible = false
+	else:
+		velocity = Vector2(0.0, Tuning.DEATH_POP_VY)
+		set_deferred("collision_layer", 0)
+		set_deferred("collision_mask", 0)
+		_sprite.play("death")
+
+
+## §8: 死亡物理——只受重力上抛/下落，无输入、无碰撞（mask 已清零）。
+func _death_step(delta: float) -> void:
+	_death_timer += delta
+	if visible:
+		velocity.y = minf(velocity.y + Tuning.GRAVITY_UP * delta, Tuning.ENEMY_MAX_FALL)
+		move_and_slide()
+	if not _fade_started and _death_timer >= Tuning.DEATH_FADE_AT:
+		_fade_started = true
+		Transition.fade_to_black(Tuning.DEATH_FADE)
+		died.emit()
 
 
 func _update_facing(dir: int) -> void:
@@ -106,7 +216,11 @@ func _update_facing(dir: int) -> void:
 
 
 func _update_animation() -> void:
+	if dead:
+		return
 	if _sprite.animation == "land":
+		return
+	if victory and _sprite.animation == "victory":
 		return
 	var anim := "idle"
 	if not is_on_floor():

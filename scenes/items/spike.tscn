@@ -1,0 +1,20 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/spike.gd" id="1_spike"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_hurt"]
+size = Vector2(12, 8)
+
+[node name="Spike" type="Area2D"]
+z_index = 1
+collision_layer = 32
+collision_mask = 4
+script = ExtResource("1_spike")
+
+[node name="Shape" type="CollisionShape2D" parent="."]
+position = Vector2(8, 12)
+shape = SubResource("RectangleShape2D_hurt")
+
+[node name="Teeth" type="Polygon2D" parent="."]
+color = Color(0.694118, 0.243137, 0.32549, 1)
+polygon = PackedVector2Array(2, 16, 5, 8, 8, 16, 11, 8, 14, 16)

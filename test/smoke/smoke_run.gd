@@ -6,6 +6,7 @@ extends Node
 ## M3 scope: instantiate all 3 levels (terrain + entities), no SCRIPT ERROR.
 ## M4 scope: Player present in every level; scripted hold-right moves within
 ## the map; one-way drop-through; corner correction clears the overhang.
+## M5 scope: per-level entity counts (coins/walkers/spikies/spikes/signs).
 var _failures: PackedStringArray = []
 
 
@@ -65,6 +66,17 @@ func _check_levels() -> void:
 		else:
 			if terrain.get_used_rect().size.x != Levels.COLS:
 				_failures.append("level %d: Terrain used rect width %d != %d" % [level_index, terrain.get_used_rect().size.x, Levels.COLS])
+		var counts := level.get_entity_counts()
+		var expected_counts: Dictionary = {
+			1: {"coins": 11, "walkers": 1, "spikies": 0, "spikes": 0, "signs": 5},
+			2: {"coins": 17, "walkers": 2, "spikies": 0, "spikes": 0, "signs": 0},
+			3: {"coins": 8, "walkers": 1, "spikies": 2, "spikes": 9, "signs": 0},
+		}[level_index]
+		for key in expected_counts:
+			_check(
+				counts.get(key, -1) == expected_counts[key],
+				"level %d: %s count %d != %d" % [level_index, key, counts.get(key, -1), expected_counts[key]],
+			)
 		level.queue_free()
 	await get_tree().process_frame
 

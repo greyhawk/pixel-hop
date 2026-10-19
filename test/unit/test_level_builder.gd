@@ -69,7 +69,7 @@ func test_level_01_spawn_and_flag() -> void:
 	var level := _build(1)
 	var spawn: Marker2D = level.get_node("Entities/Spawn")
 	assert_eq(spawn.position, Vector2(40, 160), "1-1 spawn (P col 2 row 9)")
-	var flag: Marker2D = level.get_node("Entities/Flag")
+	var flag: Node2D = level.get_node("Entities/Flag")
 	assert_eq(flag.position, Vector2(616, 160), "1-1 flag (F col 38 row 9)")
 
 

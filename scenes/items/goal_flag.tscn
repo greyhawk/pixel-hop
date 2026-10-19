@@ -1,0 +1,25 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/goal_flag.gd" id="1_flag"]
+[ext_resource type="Texture2D" path="res://assets/sprites/items/flag_pole.png" id="2_pole"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_trigger"]
+size = Vector2(8, 48)
+
+[node name="GoalFlag" type="Node2D"]
+script = ExtResource("1_flag")
+
+[node name="Pole" type="Sprite2D" parent="."]
+offset = Vector2(0, -24)
+texture = ExtResource("2_pole")
+
+[node name="Cloth" type="AnimatedSprite2D" parent="."]
+position = Vector2(6, -17)
+
+[node name="Trigger" type="Area2D" parent="."]
+collision_layer = 16
+collision_mask = 4
+
+[node name="TriggerShape" type="CollisionShape2D" parent="Trigger"]
+position = Vector2(0, -24)
+shape = SubResource("RectangleShape2D_trigger")

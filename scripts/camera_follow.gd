@@ -8,6 +8,8 @@ extends Camera2D
 var player: Node2D = null
 ## 当前 look-ahead 偏移（像素）。
 var look_ahead := 0.0
+## §8 M5: 玩家死亡后冻结相机（不再跟随，位置保持死亡瞬间）。
+var frozen := false
 
 var _look_target := 0.0
 
@@ -26,7 +28,7 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if not is_instance_valid(player):
+	if frozen or not is_instance_valid(player):
 		return
 	var cb := player as CharacterBody2D
 	if absf(cb.velocity.x) > Tuning.LOOK_AHEAD_MIN_VX:

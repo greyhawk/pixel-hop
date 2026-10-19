@@ -1,0 +1,25 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/sign.gd" id="1_sign"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_trigger"]
+size = Vector2(48, 32)
+
+[node name="Sign" type="Node2D"]
+script = ExtResource("1_sign")
+
+[node name="Trigger" type="Area2D" parent="."]
+collision_layer = 16
+collision_mask = 4
+
+[node name="TriggerShape" type="CollisionShape2D" parent="Trigger"]
+position = Vector2(0, -24)
+shape = SubResource("RectangleShape2D_trigger")
+
+[node name="Board" type="Polygon2D" parent="."]
+color = Color(0.72, 0.58, 0.42, 1)
+polygon = PackedVector2Array(-8, -16, 8, -16, 8, -8, -8, -8)
+
+[node name="Post" type="Polygon2D" parent="."]
+color = Color(0.5, 0.38, 0.26, 1)
+polygon = PackedVector2Array(-1, -8, 1, -8, 1, 0, -1, 0)
