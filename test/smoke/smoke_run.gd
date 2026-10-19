@@ -7,6 +7,7 @@ extends Node
 ## M4 scope: Player present in every level; scripted hold-right moves within
 ## the map; one-way drop-through; corner correction clears the overhang.
 ## M5 scope: per-level entity counts (coins/walkers/spikies/spikes/signs).
+## M6 scope: GameState 状态机、SaveData 临时路径往返、game_over.tscn 实例化。
 var _failures: PackedStringArray = []
 
 
@@ -19,6 +20,7 @@ func _run() -> void:
 	await get_tree().physics_frame
 	_check_autoloads()
 	_check_input_map()
+	await _check_game_state()
 	await _check_levels()
 	await _check_player_movement()
 	await _check_player_drop_through()
@@ -109,6 +111,45 @@ func _check_input_map() -> void:
 	if not before == _snapshot():
 		_failures.append("register_input_map is not idempotent")
 
+## M6: GameState 状态机 + SaveData 临时路径往返 + game_over.tscn 实例化。
+## 全部用自建实例（不依赖 Game.state / Game.save），绝不触发场景切换。
+func _check_game_state() -> void:
+	var gs := GameState.new()
+	_check(gs.lives == 3, "state: default lives=3")
+	_check(gs.hp == 3, "state: default hp=3")
+	_check(gs.current_level == 1, "state: default level 1")
+	_check(gs.coins_total_this_level == 11, "state: level 1 coin total 11")
+	gs.collect_coin()
+	_check(gs.coins_this_level == 1, "state: collect_coin counts")
+	_check(gs.apply_damage() == false, "state: non-lethal hit")
+	_check(gs.hp == 2, "state: hp 2 after hit")
+	_check(gs.on_death() == "respawn", "state: 1st death → respawn")
+	_check(gs.lives == 2 and gs.deaths_this_level == 1, "state: respawn settlement")
+	_check(gs.on_death() == "respawn", "state: 2nd death → respawn")
+	_check(gs.on_death() == "game_over", "state: 3rd death → game_over")
+	gs.retry_after_game_over()
+	_check(gs.lives == 3 and gs.deaths_this_level == 0, "state: retry full reset")
+
+	var tmp := "user://smoke_save.cfg"
+	if FileAccess.file_exists(tmp):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+	var sv := SaveData.new(tmp)
+	_check(sv.unlocked_level == 1 and sv.best_coins_for(1) == -1, "save: missing file → defaults")
+	sv.complete_level(1, 6)
+	_check(sv.unlocked_level == 2, "save: clear unlocks next level")
+	var reloaded := SaveData.new(tmp)
+	_check(reloaded.unlocked_level == 2 and reloaded.best_coins_for(1) == 6, "save: persisted")
+	_check(reloaded.best_coins_for(3) == -1, "save: uncleared level = -1")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+
+	var packed_go: PackedScene = load(Game.GAME_OVER_SCENE)
+	_check(packed_go != null, "game_over.tscn loads")
+	if packed_go != null:
+		var go: Node = packed_go.instantiate()
+		get_tree().root.call_deferred("add_child", go)
+		await get_tree().create_timer(0.1).timeout
+		_check(go.is_inside_tree(), "game_over.tscn instantiates")
+		go.queue_free()
 
 func _has_key(action: String, kc: Key) -> bool:
 	for ev in InputMap.action_get_events(action):

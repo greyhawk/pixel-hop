@@ -141,6 +141,9 @@ func damage(source: Vector2, is_spike: bool) -> void:
 	if dead or victory or _iframe_timer > 0.0:
 		return
 	hp -= 1
+	# M6: 同步到 GameState（两边同为 3、随重生/重开一起重置，不会漂移）。
+	if Game.state != null:
+		Game.state.apply_damage()
 	_hurt_lock = Tuning.HURT_LOCK
 	_iframe_timer = Tuning.IFRAMES
 	_sprite.visible = true

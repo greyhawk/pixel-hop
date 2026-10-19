@@ -35,3 +35,53 @@ UI 文本使用 **Fusion Pixel Font 12px proportional**（zh-hans 子集，版�
 
 占位视觉：尖刺与指示牌尚无 §6.2 正式美术，使用 Polygon2D 多边形占位
 （尖刺 `#b13e53` 双三角、指示牌棕色板 + 立柱），后续替换为精灵图。
+
+## M6：流程与存档
+
+**关卡数据迁出 autoload**：`Levels` 不再是 autoload，改为
+`scripts/levels/levels.gd` 的 `class_name Levels`（RefCounted，纯数据），
+所有 `Levels.X` 引用经全局类名解析；`project.godot` 中对应行已移除。
+
+**GameState**（`scripts/game_state.gd`）：运行时状态集中于此（M5 中散落在
+Player/Level 的 HP / 命数收敛到这里）：`lives` / `hp` / `current_level` /
+`coins_this_level` / `coins_total_this_level` / `deaths_this_level` /
+`level_time`，信号 `hp_changed` / `lives_changed` / `coins_changed`。
+方法：`start_new_game` / `start_level`（进关：HP 回满、金币清零、总数取
+`Levels.META`、计时与失误清零、命数保持）/ `apply_damage()`（返回是否致命）/
+`on_death()`（返回 `"respawn"` 或 `"game_over"`）/ `on_level_complete()` /
+`restart_level_from_pause()` / `retry_after_game_over()` / `collect_coin()`。
+**D23**：暂停重开不扣命、不清空 `deaths_this_level`（面板要显示本关总失误）；
+Game Over 重试则命数=3 且全部清零。玩家 `damage()` 同步调用
+`Game.state.apply_damage()`（两边同为 3 并随重生/重开一起重置）。
+
+**SaveData**（`scripts/save_data.gd`）：ConfigFile 存 `user://save.cfg`，
+路径可注入（测试用临时路径）。`progress`：`unlocked_level`、`best_coins_1..3`
+（-1 = 未通关，只升不降）；`settings`：`fullscreen`。`complete_level(level,
+coins)` 解锁下一关（上限 3）并即时落盘；文件缺失时取默认值不报错。
+
+**流程**（`autoload/game.gd`）：死亡 → `Level` 路由 `on_death()`：respawn 走
+`Game.respawn()`（重进当前关，`Level._ready` 经 `Game.respawn_pending` 给新
+玩家 1.0s 重生无敌帧 + 播放 `sfx_respawn`），game_over 走 `Game.go_game_over()`。
+通关 → `Level._on_flag_completed`：`state.on_level_complete()` +
+`save.complete_level()`，等 0.8s 后自动进下一关；第 3 关通关回标题。
+暂停「重开本关」→ `Game.restart_level()`；Game Over「重试本关」→
+`Game.retry_after_game_over()`（命数=3、重进当前关）。
+`Level.level_index` 默认 0 为哨兵值，`_ready` 时从 `Game.state.current_level`
+解析（测试/冒烟直接赋值绕过）。
+
+**计时**（§9.7）：`Level._process` 在玩家存活且未通关时累加
+`Game.state.level_time`；死亡 / 过关 / 重开 / 重试均清零。
+
+**Game Over 界面**（`scenes/ui/game_over.tscn`）：M6 最小可工作版——
+黑背景 + 标题 + 文本 + 两行菜单（重试本关 / 返回标题），↑↓ 选择、Enter 确认，
+0.6s（`RESULT_INPUT_GRACE`）内忽略输入，进入时播放 `jingle_game_over`。
+0.5s 淡入、面板装饰等 §10.7 完整样式 = M7（UiTheme 已在用）。
+
+**测试**：`test/unit/test_game_state.gd`（状态机全路径 + 信号计数/取值）、
+`test/unit/test_save_data.gd`（缺文件默认值、往返、解锁、best 历史最高、
+临时路径清理）。冒烟（`smoke_run.gd`）新增：GameState 默认值与
+respawn→game_over 序列、SaveData 临时路径往返、`game_over.tscn` 实例化。
+
+**假设与占位**：通关结算面板（§10.6，含金币/用时/失误明细与菜单）= M7，
+当前仅 0.8s 延时后自动进下一关；`Audio.play_bgm` 仍是 no-op（M8 接 BGM）；
+重生无敌帧复用受击闪烁动画 1.0s。

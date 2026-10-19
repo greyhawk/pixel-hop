@@ -47,6 +47,8 @@ const PIT_MARGIN := 16            # 玩家 y > limit_bottom + 16 (=208) → 死�
 const FLAG_RAISE := 0.6
 const COMPLETE_PANEL_DELAY := 0.8
 const JINGLE_DELAY := 0.2
+# 重生
+const RESPAWN_IFRAMES := 1.0       # §9.6: 重生无敌 1.0 s（复用受击闪烁节奏）
 # 相机
 const CAMERA_SMOOTHING := true
 const CAMERA_SMOOTHING_SPEED := 7.0

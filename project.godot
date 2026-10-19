@@ -8,7 +8,6 @@ run/main_scene="res://scenes/main.tscn"
 Game="*res://autoload/game.gd"
 Transition="*res://autoload/transition.gd"
 Audio="*res://autoload/audio.gd"
-Levels="*res://autoload/levels.gd"
 
 [display]
 window/size/viewport_width=320

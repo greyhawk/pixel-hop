@@ -1,33 +1,85 @@
 class_name Level
 extends Node2D
-## §7 / §8: Level scene root. `level_index` is a Levels.MAPS key (1-3).
-## Children (Terrain, Decor, Entities, Bounds, Camera) are built in
-## _ready by LevelBuilder — set level_index before add_child.
-## M5: 掉坑检测（Bounds 底 + PIT_MARGIN）、死亡时 lives −= 1 + 相机冻结 +
-## 发 player_died（重生/结算面板 = M6/M7）。
+## §7 / §8: Level scene root。`level_index` 是 Levels.MAPS key（1-3）；
+## 0 是哨兵：场景由游戏流程直接加载时 _ready 取 Game.state.current_level。
+## 子节点（Terrain、Decor、Entities、Bounds、Camera）由 LevelBuilder 在
+## _ready 构建——冒烟 / 建造器测试需在 add_child 前显式设置 level_index。
+## M6: 死亡路由（重生 / Game Over）、过关→解锁→下一关、本关计时。
 
 signal player_died
 
-var level_index: int = 1
-var lives := Tuning.START_LIVES
+## 0 = 哨兵（§10.7 流程切换不写此值，读 Game.state.current_level）。
+@export var level_index: int = 0
 
 var _player: Player
 var _camera: CameraFollow
+var _time_running := false
 
 
 func _ready() -> void:
+	if level_index < 1:
+		if Game.state != null:
+			level_index = Game.state.current_level
 	LevelBuilder.build(self, level_index)
 	_player = get_node_or_null("Entities/Player") as Player
 	_camera = get_node_or_null("Camera") as CameraFollow
 	if _player:
 		_player.died.connect(_on_player_died)
+		if Game.respawn_pending:
+			# §9.6: 重生——新 Player 实例满 HP，给 1.0 s 无敌（沿用受击闪烁）。
+			_player._iframe_timer = Tuning.RESPAWN_IFRAMES
+			Audio.play_sfx("sfx_respawn")
+		Game.respawn_pending = false
+	_time_running = not Game.smoke_mode
+	_connect_entities()
 
 
+## M6: 金币计数 + 终点旗过关路由（回调里的场景切换在冒烟下只打印，见 Game）。
+func _connect_entities() -> void:
+	var entities := get_node_or_null("Entities")
+	if entities == null:
+		return
+	for child in entities.get_children():
+		if child is Coin and not child.collected.is_connected(_on_coin_collected):
+			child.collected.connect(_on_coin_collected)
+	var flag := entities.get_node_or_null("Flag") as GoalFlag
+	if flag and not flag.completed.is_connected(_on_flag_completed):
+		flag.completed.connect(_on_flag_completed)
+
+
+func _on_coin_collected() -> void:
+	Game.state.collect_coin()
+
+
+## §9.6: 死亡结算（died 在 t=1.0 s、黑幕已拉起后发出）——lives > 0 重生，
+## lives == 0 进 Game Over。等 fade_to_black（0.35 s）完成后再切场景。
 func _on_player_died() -> void:
-	lives -= 1
 	if _camera:
 		_camera.frozen = true
 	player_died.emit()
+	_time_running = false
+	if Game.smoke_mode:
+		return
+	var result := Game.state.on_death()
+	await get_tree().create_timer(Tuning.DEATH_FADE + 0.05).timeout
+	if result == "game_over":
+		Game.go_game_over()
+	else:
+		Game.respawn()
+
+
+## §9.7: 过关——HP 回满、存档解锁下一关、0.8 s 后自动进下一关（或回标题）。
+func _on_flag_completed() -> void:
+	_time_running = false
+	if Game.smoke_mode:
+		return
+	Game.state.on_level_complete()
+	Game.save.complete_level(level_index, Game.state.coins_this_level)
+	await get_tree().create_timer(Tuning.COMPLETE_PANEL_DELAY).timeout
+	if level_index < Levels.MAPS.size():
+		Game.start_level(level_index + 1)
+	else:
+		Game.go_title()
 
 
 ## 掉坑：玩家脚底越过关卡边界底 + PIT_MARGIN（§9.2）。
@@ -36,6 +88,12 @@ func _physics_process(_delta: float) -> void:
 		return
 	if _camera and _player.global_position.y > _camera.limit_bottom + Tuning.PIT_MARGIN:
 		_player.die(true)
+
+
+## §9.7: 本关计时（死亡 / 过关 / 重开时归零，见 GameState）。
+func _process(delta: float) -> void:
+	if _time_running and _player and not _player.dead and not _player.victory:
+		Game.state.level_time += delta
 
 
 ## §12: 冒烟测试用的实体计数（建造器注入，非运行时状态）。

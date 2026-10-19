@@ -1,6 +1,8 @@
-extends Node
-## Level data autoload (spec §7.2): map grids, metadata, sign texts,
-## and map validation. MAPS rows are verbatim from spec §7.2 and
+class_name Levels
+extends RefCounted
+## Level data (spec §7.2, §14): map grids, metadata, sign texts,
+## and map validation. M6 起不再是 autoload，改为 class_name RefCounted
+## （纯常量数据，无需节点）。MAPS rows are verbatim from spec §7.2 and
 ## identical to tools/maps.json (checked by test/unit/test_level_data.gd).
 
 const ROWS := 12
