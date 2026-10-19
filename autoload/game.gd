@@ -82,7 +82,7 @@ func go_game_over() -> void:
 	Transition.change_scene(GAME_OVER_SCENE)
 
 
-func start_level(level_index: int) -> void:
+func start_level(_level_index: int) -> void:
 	Transition.change_scene(LEVEL_SCENE)
 
 
