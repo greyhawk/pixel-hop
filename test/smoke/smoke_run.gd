@@ -4,6 +4,8 @@ extends Node
 ## Never uses change_scene_to_file (it would unload the driver).
 ## M0 scope: autoloads + input map idempotency.
 ## M3 scope: instantiate all 3 levels (terrain + entities), no SCRIPT ERROR.
+## M4 scope: Player present in every level; scripted hold-right moves within
+## the map; one-way drop-through; corner correction clears the overhang.
 var _failures: PackedStringArray = []
 
 
@@ -17,6 +19,9 @@ func _run() -> void:
 	_check_autoloads()
 	_check_input_map()
 	await _check_levels()
+	await _check_player_movement()
+	await _check_player_drop_through()
+	await _check_player_corner_correction()
 	for i in 30:
 		await get_tree().physics_frame
 	if _failures.is_empty():
@@ -50,6 +55,8 @@ func _check_levels() -> void:
 		await get_tree().process_frame
 		if level.get_node_or_null("Entities/Spawn") == null:
 			_failures.append("level %d: Spawn marker missing" % level_index)
+		if level.get_node_or_null("Entities/Player") == null:
+			_failures.append("level %d: Player missing" % level_index)
 		if level.get_node_or_null("Entities/Flag") == null:
 			_failures.append("level %d: Flag marker missing" % level_index)
 		var terrain: TileMapLayer = level.get_node_or_null("Terrain") as TileMapLayer
@@ -108,3 +115,102 @@ func _snapshot() -> String:
 		keys.sort()
 		out[action] = keys
 	return JSON.stringify(out)
+
+
+func _check(cond: bool, msg: String) -> void:
+	if not cond:
+		_failures.append(msg)
+
+
+func _instantiate_level(level_index: int) -> Level:
+	var packed: PackedScene = load(Game.LEVEL_SCENE)
+	var level: Level = packed.instantiate()
+	level.level_index = level_index
+	add_child(level)
+	return level
+
+
+func _get_player(level: Level) -> Player:
+	return level.get_node_or_null("Entities/Player") as Player
+
+
+## §13.2 / M4 验收：按住右 120 帧，x 增加且不离开地图（1-1 无坑）。
+func _check_player_movement() -> void:
+	var level := _instantiate_level(1)
+	await get_tree().process_frame
+	var player := _get_player(level)
+	if player == null:
+		_failures.append("movement: Player missing")
+		level.queue_free()
+		await get_tree().process_frame
+		return
+	var scripted := InputSource.ScriptedInput.new()
+	for i in 120:
+		scripted.queue_frame(1, "none")
+	player.input_source = scripted
+	var x0 := player.global_position.x
+	for i in 150:
+		await get_tree().physics_frame
+	var pos := player.global_position
+	_check(pos.x > 100.0, "movement: player x %f did not move right (start %f)" % [pos.x, x0])
+	_check(pos.x <= 640.0, "movement: player x %f left the map" % pos.x)
+	_check(pos.y < 192.0 + Tuning.PIT_MARGIN, "movement: player y %f fell out of the map" % pos.y)
+	level.queue_free()
+	await get_tree().process_frame
+
+
+## §9.4：1-1 的 row8 单向平台（cols 31–34，顶 y=128）。落在平台上，
+## 下压 + 跳（held 分支）→ 穿过平台落到地面 y=160，mask 恢复 FULL。
+func _check_player_drop_through() -> void:
+	var level := _instantiate_level(1)
+	await get_tree().process_frame
+	var player := _get_player(level)
+	if player == null:
+		_failures.append("drop: Player missing")
+		level.queue_free()
+		await get_tree().process_frame
+		return
+	player.position = Vector2(520, 128)
+	player.velocity = Vector2.ZERO
+	var scripted := InputSource.ScriptedInput.new()
+	for i in 2:
+		scripted.queue_frame(0, "none")
+	scripted.queue_frame(0, "down", true)
+	for i in 40:
+		scripted.queue_frame(0, "none")
+	player.input_source = scripted
+	for i in 45:
+		await get_tree().physics_frame
+	_check(player.global_position.y > 130.0, "drop: player y %f did not drop through the one-way strip" % player.global_position.y)
+	_check(player.collision_mask == Player.FULL_MASK, "drop: collision mask %d not restored to %d" % [player.collision_mask, Player.FULL_MASK])
+	level.queue_free()
+	await get_tree().process_frame
+
+
+## §9.5：1-1 顶棚（row8 cols 15–17，y 128–144）。身体 [234,244] 与 col15
+## 重叠恰 4 px（== Tuning.CORNER_CORRECTION）：跳起顶头时应被水平推出并继续上升。
+func _check_player_corner_correction() -> void:
+	var level := _instantiate_level(1)
+	await get_tree().process_frame
+	var player := _get_player(level)
+	if player == null:
+		_failures.append("corner: Player missing")
+		level.queue_free()
+		await get_tree().process_frame
+		return
+	player.position = Vector2(239, 160)
+	player.velocity = Vector2.ZERO
+	var scripted := InputSource.ScriptedInput.new()
+	scripted.queue_frame(0, "down")
+	for i in 12:
+		scripted.queue_frame(0, "none")
+	scripted.queue_frame(0, "up")
+	player.input_source = scripted
+	var min_y := player.global_position.y
+	for i in 25:
+		await get_tree().physics_frame
+		min_y = minf(min_y, player.global_position.y)
+	_check(min_y < 132.0, "corner: player min y %f — did not clear the overhang (corner correction failed)" % min_y)
+	_check(player.global_position.x < 239.0, "corner: player x %f — not pushed off the overhang corner" % player.global_position.x)
+	level.queue_free()
+	await get_tree().process_frame

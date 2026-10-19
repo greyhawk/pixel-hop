@@ -25,12 +25,13 @@ static func build(root: Node2D, level_index: int) -> void:
 	entities.name = "Entities"
 	root.add_child(entities)
 	_build_bounds(root)
-	_build_camera(root, level_index)
+	var camera := _build_camera(root, level_index)
 	for r in rows.size():
 		var row: String = rows[r]
 		for c in row.length():
 			var ch: String = row.substr(c, 1)
 			_place(terrain, decor, entities, ch, c, r, rows, level_index)
+	_place_player(terrain, entities, camera)
 
 
 ## §7.3: `#` is solid; out of bounds: left/right count as solid,
@@ -157,14 +158,31 @@ static func _place_wall(parent: Node2D, x: int) -> void:
 	parent.add_child(wall)
 
 
-## §7.2: Camera2D limited to the level viewport rect from Levels.META.
-static func _build_camera(root: Node2D, level_index: int) -> void:
+## §7.2: Camera2D (CameraFollow) limited to the level viewport rect from
+## Levels.META; follows the Player with drag + look-ahead (§9.6).
+static func _build_camera(root: Node2D, level_index: int) -> CameraFollow:
 	var meta: Dictionary = Levels.META[level_index]
 	var cam_rect: Rect2i = meta["camera"]
-	var camera := Camera2D.new()
+	var camera := CameraFollow.new()
 	camera.name = "Camera"
 	camera.limit_left = cam_rect.position.x
 	camera.limit_top = cam_rect.position.y
 	camera.limit_right = cam_rect.end.x
 	camera.limit_bottom = cam_rect.end.y
 	root.add_child(camera)
+	return camera
+
+
+## M4: spawn the Player at the "Spawn" marker (kept for tests/smoke),
+## inject the Terrain layer (drop-through / corner probes) and hand it to the camera.
+static func _place_player(terrain: TileMapLayer, entities: Node2D, camera: CameraFollow) -> void:
+	var spawn: Node2D = entities.get_node_or_null("Spawn")
+	if spawn == null:
+		return
+	var player := preload("res://scenes/player/player.tscn").instantiate() as Player
+	player.name = "Player"
+	player.position = spawn.position
+	player.terrain = terrain
+	entities.add_child(player)
+	camera.player = player
+	camera.snap_to_player()
