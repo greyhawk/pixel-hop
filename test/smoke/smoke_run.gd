@@ -2,8 +2,8 @@ extends Node
 ## Headless smoke driver (spec §13.2). Runs as a standalone scene:
 ##   godot --headless --path . --fixed-fps 60 --quit-after 3600 test/smoke/smoke_run.tscn
 ## Never uses change_scene_to_file (it would unload the driver).
-## M0 scope: autoloads + input map idempotency. Level/UI sections land in M3+.
-
+## M0 scope: autoloads + input map idempotency.
+## M3 scope: instantiate all 3 levels (terrain + entities), no SCRIPT ERROR.
 var _failures: PackedStringArray = []
 
 
@@ -16,6 +16,7 @@ func _run() -> void:
 	await get_tree().physics_frame
 	_check_autoloads()
 	_check_input_map()
+	await _check_levels()
 	for i in 30:
 		await get_tree().physics_frame
 	if _failures.is_empty():
@@ -34,6 +35,31 @@ func _check_autoloads() -> void:
 		_failures.append("Transition autoload missing")
 	if not is_instance_valid(Audio):
 		_failures.append("Audio autoload missing")
+
+
+func _check_levels() -> void:
+	var packed: PackedScene = load(Game.LEVEL_SCENE)
+	if packed == null:
+		_failures.append("level.tscn failed to load")
+		return
+	for idx in 3:
+		var level_index := idx + 1
+		var level: Level = packed.instantiate()
+		level.level_index = level_index
+		add_child(level)
+		await get_tree().process_frame
+		if level.get_node_or_null("Entities/Spawn") == null:
+			_failures.append("level %d: Spawn marker missing" % level_index)
+		if level.get_node_or_null("Entities/Flag") == null:
+			_failures.append("level %d: Flag marker missing" % level_index)
+		var terrain: TileMapLayer = level.get_node_or_null("Terrain") as TileMapLayer
+		if terrain == null:
+			_failures.append("level %d: Terrain TileMapLayer missing" % level_index)
+		else:
+			if terrain.get_used_rect().size.x != Levels.COLS:
+				_failures.append("level %d: Terrain used rect width %d != %d" % [level_index, terrain.get_used_rect().size.x, Levels.COLS])
+		level.queue_free()
+	await get_tree().process_frame
 
 
 func _check_input_map() -> void:
