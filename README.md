@@ -85,3 +85,69 @@ respawn→game_over 序列、SaveData 临时路径往返、`game_over.tscn` 实�
 **假设与占位**：通关结算面板（§10.6，含金币/用时/失误明细与菜单）= M7，
 当前仅 0.8s 延时后自动进下一关；`Audio.play_bgm` 仍是 no-op（M8 接 BGM）；
 重生无敌帧复用受击闪烁动画 1.0s。
+
+
+## M7：界面
+
+**主题与菜单**：全部 UI 运行时构建（无 .tscn 控件树），统一 `UiTheme.build()`
+（Fusion Pixel 12px 中文字体，标题 24 号，阴影 `#1a1c2c` 偏移 (1,1)）。
+`MenuList`（`scripts/ui/menu_list.gd`）：Label 条目 + 1px 水平抖动光标
+（周期 0.4s）、双向环绕且跳过禁用项、选中 `#ffcd75` / 普通 `#f4f4f4` /
+禁用 `#566c86`；确认宽限期 `Tuning.MENU_INPUT_GRACE = 0.15s`
+（§10.1 固定值，替换 M6 占位 0.25s），结算菜单用 `RESULT_INPUT_GRACE = 0.6s`
+（§10.7）。公开入口 `press_move(dir)` / `press_accept()`（绕过宽限，供冒烟与单测）。
+
+**场景根节点类型**：`hud.tscn` = CanvasLayer(10) 根 + 全矩形 Control 子节点
+（`hud.gd` 继承 Control，须挂 Control 上）；`level_select` / `pause_menu` /
+`level_complete` 三个弹窗 = 裸 CanvasLayer(15) 根、脚本挂根（脚本继承
+CanvasLayer，不能挂 Control；主题化 Control 子节点在 `_ready` 运行时构建）；
+`title_screen.tscn` = Node2D 根（视差滚动层）；`game_over.tscn` = 全矩形
+Control 根（子节点全部代码构建）。
+
+**标题界面**（§10.1）：视差 ×2 份拼接的远景 + 地面草条（tileset 图集运行时
+合成）、LOGO「像素跳跳」+ 副标题、4 项菜单（开始游戏 / 选择关卡 / 全屏：关 /
+退出游戏）、KeyHint、版本 v0.1。选关界面（§10.2）：192×120 面板，3 行
+「名称 + 关卡号 + 最佳金币」（未通关 `--/N`，§9.7），未解锁行灰显 + 锁图标、
+不可选；进入关卡 = `Game.start_new_game(idx+1)`（D24 命数=3）。
+
+**HUD**（§10.3）：心形血条（`ui_heart_full/empty` ×3，受击 0.08s×3 闪烁）、
+命数（`ui_life` 图标 + `命 ×%d`）、金币（`ui_coin` 图标 + 0.1s 弹跳 +
+`%02d/%02d`）、计时 `%02d:%02d`、关卡名横幅（1.5s 淡入淡出）、toast 预留
+（`show_toast` 公开入口，M7 无调用方）。
+
+**暂停 / 结算 / 选关联动**：Esc 或 P 开暂停（`pause_menu`，0.15s 宽限；
+Esc 分支同时处理开与关防双触发；`set_enabled(false)` 只屏蔽输入不隐藏——
+过关流程中禁用）。过关（§9.7/§10.6）：旗触发 → 关内暂停禁用 → 状态机 +
+存档（best 历史最高，只升不降）→ 保留 0.8s `COMPLETE_PANEL_DELAY` 节拍 →
+`level_complete` 结算面板（金币 countup 0.04s/tick、全收集行 `#a7f070`、
+用时、失误、按钮横排 默认「下一关」；第 3 关变体：`总金币 N / 36` + 单按钮
+「返回标题」，彩带 = M8）。M6 的自动进下一关已删除，改由面板驱动
+（下一关 / 重玩 / 标题）。`setup()` 经由未类型化变量动态调用
+（Godot 静态分析不允许在基类类型上调用脚本方法）。
+
+**Game Over**（§10.7，M6 最小版 → 完整样式）：黑底 `#1a1c2c` 从黑幕 0.5s
+淡入（根节点 modulate 补间）；「游戏结束」24 号 `#b13e53` y=52、「命数用尽了……」
+12 号 `#94b0c2` y=84、菜单 y=112/126（重试本关 / 返回标题）、0.6s 后接受输入；
+`stop_bgm()` + `play_sfx("jingle_game_over")`——§10.7「不播 BGM」：jingle 为
+一次性音效，关卡 BGM 不得继续。
+
+**路牌气泡**（§10.4）：`SignBubble` = PanelContainer 自适应尺寸 +
+`call_deferred` 摆放三角尾（`ui_bubble_tail`，避开测量时机问题）；
+`sign.gd` 每 2.5s 弹出 2s（错开 1s 初相位）。
+
+**KeyHint**：`set_hint_color` API（默认 `#94b0c2`，Game Over 用 `#8b8ba4`）；
+按键名用 `[ ]` 方括号字面文本（无键帽贴图排版依赖）。
+
+**全屏**（D12）：F11 切换 + 持久化 `SaveData.fullscreen`（`settings/fullscreen`）
++ 启动时恢复；标题菜单项文本随状态切换「全屏：关/开」；冒烟模式跳过切换。
+
+**测试**：`test/unit/test_hud_format.gd`（金币/计时格式，含取整与钳制）、
+`test/unit/test_menu_list.gd`（环绕、跳过禁用、默认首个可点项、禁用项确认
+`-1` 不发射、换文本重测、纵向居中/横向布局）。冒烟新增 `_check_ui_scenes()`：
+6 个 UI 场景逐个实例化 → 断言「有主题 Control + Fusion Pixel 字体」→
+对每个 MenuList 驱动一次「移动 + 确认」（各 dispatcher 冒烟下只打印
+`TITLE/SELECT/PAUSE/COMPLETE/GAMEOVER ACTION: …`，不切场景）。
+
+**假设与占位**：无新增 Strings 键（M7 文案全部复用 `scripts/ui/strings.gd`）；
+彩带 / 尘土 / 烟 / 火花 / hitstop / 屏幕震动 / 真音频 = M8（`Audio` 仍 no-op）；
+`show_toast` 为 §10.3 预留入口，M7 无调用方。

@@ -23,6 +23,8 @@ func _ready() -> void:
 	get_window().min_size = Vector2i(320, 180)
 	state = GameState.new()
 	save = SaveData.new()
+	if save.fullscreen:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 
 
 ## Registers all actions from spec §9.1. Idempotent: safe to call repeatedly.
@@ -75,11 +77,16 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func toggle_fullscreen() -> void:
+	if smoke_mode:
+		return
 	var mode := DisplayServer.window_get_mode()
 	if mode == DisplayServer.WINDOW_MODE_FULLSCREEN:
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		save.fullscreen = false
 	else:
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		save.fullscreen = true
+	save.save()
 
 
 # --- Level flow (M6: state machine + scene routing) ---

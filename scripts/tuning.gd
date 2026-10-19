@@ -81,6 +81,14 @@ const ANIM_FALL_VY := 40.0
 const DUST_MIN_VX := 100.0
 const LAND_PUFF_MIN_VY := 200.0
 # UI
-const MENU_INPUT_GRACE := 0.25
+const MENU_INPUT_GRACE := 0.15     # §10.1: 菜单打开后确认的宽限
 const RESULT_INPUT_GRACE := 0.6    # Game Over、关卡完成
 const FADE_TIME := 0.3
+const TITLE_SCROLL_SPEED := 12.0   # §10.2: 标题背景滚动
+const BANNER_SHOW := 1.5
+const BANNER_FADE := 0.3
+const TOAST_SHOW := 1.0
+const TOAST_FADE := 0.2
+const BUBBLE_TWEEN := 0.15
+const COUNTUP_STEP := 0.04
+const TICK_PITCH_STEP := 0.03

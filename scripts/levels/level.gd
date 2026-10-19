@@ -4,7 +4,7 @@ extends Node2D
 ## 0 是哨兵：场景由游戏流程直接加载时 _ready 取 Game.state.current_level。
 ## 子节点（Terrain、Decor、Entities、Bounds、Camera）由 LevelBuilder 在
 ## _ready 构建——冒烟 / 建造器测试需在 add_child 前显式设置 level_index。
-## M6: 死亡路由（重生 / Game Over）、过关→解锁→下一关、本关计时。
+## M6: 死亡路由（重生 / Game Over）、本关计时。M7: HUD / 暂停菜单 / 结算面板。
 
 signal player_died
 
@@ -14,7 +14,8 @@ signal player_died
 var _player: Player
 var _camera: CameraFollow
 var _time_running := false
-
+var _hud: CanvasLayer
+var _pause_menu: CanvasLayer
 
 func _ready() -> void:
 	if level_index < 1:
@@ -32,6 +33,10 @@ func _ready() -> void:
 		Game.respawn_pending = false
 	_time_running = not Game.smoke_mode
 	_connect_entities()
+	_hud = (load("res://scenes/ui/hud.tscn") as PackedScene).instantiate()
+	add_child(_hud)
+	_pause_menu = (load("res://scenes/ui/pause_menu.tscn") as PackedScene).instantiate()
+	add_child(_pause_menu)
 
 
 ## M6: 金币计数 + 终点旗过关路由（回调里的场景切换在冒烟下只打印，见 Game）。
@@ -68,18 +73,20 @@ func _on_player_died() -> void:
 		Game.respawn()
 
 
-## §9.7: 过关——HP 回满、存档解锁下一关、0.8 s 后自动进下一关（或回标题）。
+## §9.7/§10.6: 过关——HP 回满、存档解锁下一关、关内暂停禁用、0.8 s 后出结算
+## 面板（M7 替代 M6 自动进下一关；下一关 / 重玩 / 标题由面板驱动）。
 func _on_flag_completed() -> void:
 	_time_running = false
 	if Game.smoke_mode:
 		return
+	_pause_menu.set_enabled(false)
 	Game.state.on_level_complete()
 	Game.save.complete_level(level_index, Game.state.coins_this_level)
 	await get_tree().create_timer(Tuning.COMPLETE_PANEL_DELAY).timeout
-	if level_index < Levels.MAPS.size():
-		Game.start_level(level_index + 1)
-	else:
-		Game.go_title()
+	var panel = (load("res://scenes/ui/level_complete.tscn") as PackedScene).instantiate()
+	add_child(panel)
+	panel.setup(level_index, Game.state.coins_this_level, Game.state.coins_total_this_level,
+			Game.state.level_time, Game.state.deaths_this_level)
 
 
 ## 掉坑：玩家脚底越过关卡边界底 + PIT_MARGIN（§9.2）。

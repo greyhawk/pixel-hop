@@ -15,6 +15,12 @@ func _ready() -> void:
 	trigger.monitorable = false
 	trigger.body_entered.connect(_on_body_entered)
 	trigger.body_exited.connect(_on_body_exited)
+	if text != "":
+		var bubble := SignBubble.new()
+		bubble.position = Vector2(0, -26)
+		add_child(bubble)
+		entered.connect(func() -> void: bubble.show_bubble(text))
+		exited.connect(bubble.hide_bubble)
 
 
 func _on_body_entered(body: Node) -> void:

@@ -8,6 +8,7 @@ extends Node
 ## the map; one-way drop-through; corner correction clears the overhang.
 ## M5 scope: per-level entity counts (coins/walkers/spikies/spikes/signs).
 ## M6 scope: GameState 状态机、SaveData 临时路径往返、game_over.tscn 实例化。
+## M7 scope: UI 场景冒烟（6 个 UI tscn 实例化 + 主题字体 + 菜单一次选择/确认）。
 var _failures: PackedStringArray = []
 
 
@@ -25,6 +26,7 @@ func _run() -> void:
 	await _check_player_movement()
 	await _check_player_drop_through()
 	await _check_player_corner_correction()
+	await _check_ui_scenes()
 	for i in 30:
 		await get_tree().physics_frame
 	if _failures.is_empty():
@@ -267,3 +269,59 @@ func _check_player_corner_correction() -> void:
 	_check(player.global_position.x < 239.0, "corner: player x %f — not pushed off the overhang corner" % player.global_position.x)
 	level.queue_free()
 	await get_tree().process_frame
+
+
+## M7: UI 场景冒烟——逐场景实例化，断言主题 Control（Fusion Pixel 字体）存在，
+## 并对每个 MenuList 驱动一次「移动 + 确认」（各 dispatcher 冒烟下只打印、不切场景）。
+const UI_SCENES: PackedStringArray = [
+	"res://scenes/ui/title_screen.tscn",
+	"res://scenes/ui/game_over.tscn",
+	"res://scenes/ui/hud.tscn",
+	"res://scenes/ui/pause_menu.tscn",
+	"res://scenes/ui/level_complete.tscn",
+	"res://scenes/ui/level_select.tscn",
+]
+
+
+func _check_ui_scenes() -> void:
+	for path in UI_SCENES:
+		var packed: PackedScene = load(path)
+		_check(packed != null, "ui: %s loads" % path)
+		if packed == null:
+			continue
+		var inst: Node = packed.instantiate()
+		get_tree().root.call_deferred("add_child", inst)
+		await get_tree().process_frame
+		await get_tree().process_frame
+		_check(inst.is_inside_tree(), "ui: %s in tree" % path)
+		var themed := _themed_control(inst)
+		_check(themed != null, "ui: %s has themed Control" % path)
+		if themed != null:
+			var font: Font = themed.get_theme_font("font")
+			_check(font != null and font.resource_path == UiTheme.FONT_PATH, "ui: %s font is Fusion Pixel" % path)
+		var menu := _first_menu_list(inst)
+		if menu != null:
+			menu.press_move(1)
+			menu.press_accept()
+		inst.queue_free()
+		await get_tree().process_frame
+
+
+func _themed_control(n: Node) -> Control:
+	if n is Control and (n as Control).theme != null:
+		return n as Control
+	for c in n.get_children():
+		var r := _themed_control(c)
+		if r != null:
+			return r
+	return null
+
+
+func _first_menu_list(n: Node) -> MenuList:
+	for c in n.get_children():
+		if c is MenuList:
+			return c
+		var r := _first_menu_list(c)
+		if r != null:
+			return r
+	return null
