@@ -2,6 +2,107 @@
 
 Godot 4.7.2 像素平台小游戏：3 个关卡、16×16 瓦片、320×180 内部分辨率、中文界面。
 
+## 截图（Screenshots）
+
+真实桌面渲染截图（`gl_compatibility` 渲染器，NVIDIA GPU + Wayland，**非** `--headless`），
+存于 `docs/screenshots/`：
+
+| 截图 | 文件 |
+|---|---|
+| 标题界面（视差背景 + 中文菜单） | `docs/screenshots/01_title.png` |
+| 1-1 游戏中 + HUD | `docs/screenshots/02_level1_hud.png` |
+| 暂停菜单 | `docs/screenshots/03_pause.png` |
+| 过关结算 | `docs/screenshots/04_level_complete.png` |
+| Game Over | `docs/screenshots/05_game_over.png` |
+
+## 运行（Run）
+
+前置：Godot **4.7.2**（`godot --version` → `4.7.2.stable.*`）。项目用
+`gl_compatibility` 渲染器：桌面直接跑；CI / 无头环境加 `--headless`（渲染为
+dummy，逻辑与单测不受影响，但截不出像素）。
+
+```bash
+godot --path .          # 跑主场景 res://scenes/main.tscn（首次会自动 import）
+bash tools/verify.sh    # 一键验证，期望末行 VERIFY PASS
+```
+
+## 操作（Controls）
+
+全部键盘可操作；菜单双向环绕、跳过禁用项。
+
+| 动作 | 按键 |
+|---|---|
+| 左移 | `A` / `←` |
+| 右移 | `D` / `→` |
+| 下压（穿过单向平台） | `S` / `↓` |
+| 跳跃（长按更高，可连踩） | `Space` / `Z` / `W` / `↑` |
+| 暂停 / 开·关菜单 | `Esc` / `P` |
+| 菜单上下左右 | `↑↓←→` / `WASD` |
+| 菜单确认 | `Enter` / `Space` / `Z` |
+| 菜单取消 | `Esc` / `X` |
+| 全屏切换（持久化） | `F11` |
+
+## 验证（Verify）
+
+```bash
+bash tools/verify.sh
+```
+
+期望末行 `VERIFY PASS`（退出码 0）。覆盖：
+
+1. 3 关可达（`tools/verify_levels.py`，`REACHABLE` × 3）；
+2. 字体在场（warn-only，缺失时退回默认字体不失败）；
+3. 28 个占位 PNG 自检（尺寸 + 调色板，`gen_placeholders.py`）；
+4. `--import` 无 `SCRIPT ERROR`；
+5. GUT 9.7.1 全绿（95/95 用例、0 孤立）；
+6. 脚本化冒烟 `SMOKE OK`；
+7. 主场景启动 `MAIN BOOT OK`。
+
+## 目录说明（Directory layout）
+
+| 路径 | 说明 |
+|---|---|
+| `assets/` | 占位 PNG（`gen_placeholders.py` 生成，28 个）+ Fusion Pixel 字体与许可 |
+| `autoload/` | `Game` / `Audio`（静默 no-op）/ `Transition` 单例 |
+| `scenes/` | `main` + `levels/level` + `items/` `enemies/` `bg/` `fx/` `player/` `ui/` |
+| `scripts/` | 对应脚本；`levels/`（关卡数据 `Levels` class）、`ui/`（界面）、`bg/`（视差） |
+| `shaders/` | `flash.gdshader`（受击闪白，运行时 `load()`） |
+| `addons/gut/` | GUT 9.7.1（MIT） |
+| `test/` | `unit/`（GUT 单测）+ `smoke/`（脚本化冒烟） |
+| `tools/` | `verify.sh` / `gen_placeholders.py` / `verify_levels.py` / `maps.json` / `fetch_font.sh` |
+| `docs/screenshots/` | 桌面渲染截图 |
+
+## 素材来源与许可（Assets & Licenses）
+
+- **占位美术**：全部为自制占位像素，由 `tools/gen_placeholders.py` 确定性生成
+  （28 个 PNG，含尺寸 + 调色板自检）；**无** Kenney / 其它第三方素材、**无**网络素材依赖。
+- **字体**：Fusion Pixel 12px proportional（zh-hans 子集，2026.10.16）© TakWolf，
+  **SIL Open Font License 1.1（OFL 1.1）**（见下节与 `assets/fonts/OFL.txt`）。
+- **GUT 9.7.1**：**MIT**（`addons/gut/LICENSE.md`）。
+
+## Godot 4.7.2 实测与偏差（Unverified items & deviations）
+
+规格中标注【未验证】的项，按 4.7.2 实测结果处理如下（全部已跑通并纳入 `verify.sh`）：
+
+- **(a) hitstop 计时**：`OS.get_ticks_msec()` 在 4.7.2 无法解析，改用
+  `Time.get_ticks_msec()` 的墙钟实现；规格示例 `create_timer(d, true, false, true)` 的
+  第 4 参【未验证】，未采用。
+- **(b) SpriteFrames**：无批量 `set_frames` / `set_loop`。逐帧用 `AtlasTexture`
+  （`atlas` + `region`）+ `add_frame(anim, tex)`；循环走 `set_animation_loop`、帧率走
+  `set_animation_speed`；`add_frame` 第 4 参是整型帧下标，**非**图集偏移。
+- **(c) `to_local`**：仅 `Node2D` 有。`OneShotFx.spawn()` 先 `parent is Node2D` 守卫，
+  再 `to_local(world_pos)`。
+- **(d) 彩带 / 尘土逐粒子颜色与时长**：headless 为 dummy 渲染无法验证观感，按
+  `Tuning` 常量近似；桌面截图可见彩带 / 尘土 / 火花。
+- **(e) 屏幕震动**：经 `Camera2D.offset`（`CameraFollow`）施加，非单独节点位移。
+- **(f) `CPUParticles2D.color_ramp`**：类型为 `Gradient`（非 `GradientTexture1D`）；
+  `OneShotFx.confetti_ramp()` 返回 `Gradient`。
+- **(g) 冒烟保护**：`Game.hitstop` 在 `smoke_mode` 下直接返回（不改
+  `Engine.time_scale`），避免扰动帧计数冒烟；其余 FX 在冒烟下照常（解析式、无计时风险）。
+
+音频（§10.11）为静默 no-op，无 `.wav` / `.ogg`；所有 `Audio.play_*` 按规格时机触发
+但不出声。
+
 ## 字体（Font Attribution）
 
 UI 文本使用 **Fusion Pixel Font 12px proportional**（zh-hans 子集，版本 2026.10.16），
@@ -152,7 +253,7 @@ Esc 分支同时处理开与关防双触发；`set_enabled(false)` 只屏蔽输�
 彩带 / 尘土 / 烟 / 火花 / hitstop / 屏幕震动 / 真音频 = M8（`Audio` 仍 no-op）；
 `show_toast` 为 §10.3 预留入口，M7 无调用方。
 
-## M8（进行中）：关卡视差背景（§10.9）
+## M8：手感与表现（视差 / hitstop / 屏幕震动 / 一次性特效）
 
 **4 层视差**（`scripts/bg/parallax_bg.gd` + `scenes/bg/parallax_bg.tscn`，`class_name
 ParallaxBg`，D20 代码构建）：`LevelBuilder.build()` 在验证关卡后、地形前实例化为
@@ -172,13 +273,24 @@ ParallaxBg`，D20 代码构建）：`LevelBuilder.build()` 在验证关卡后、
 34 / 145.2）按「静止相机」世界中心 (160,102)（玩家落地被 clamp 到关卡底）调校，使各层
 顶部落在规格 screen-top；相机纵向范围仅 [90,102]，跳跃上移时各层按 `scroll_scale.y`
 产生纵向视差（预期行为，非 bug）。`bg_sky` `scroll_scale=(0,0)` = 屏幕固定（随相机
-1:1，天空不滚动）。
+1:1，天空不滚动）。标题界面视差（`title_screen.gd`）为既有实现，未改动。
 
-**验证**：真实关卡 1-1 断言（静止 + 最右端相机）——4 层 top-y 精确命中 0/70/10/112、
-z 序 −100/−85/−90/−70、纹理宽 320、平铺覆盖视口；云漂移 −6.06 px/s。`tools/verify.sh`
-全绿（GUT 92/92 + 冒烟 `SMOKE OK` + 主启动 `MAIN BOOT OK`）。headless 渲染为 dummy
-（像素截图空白），真实像素观感需显示器跑游戏核对；标题界面视差（`title_screen.gd`）
-为既有实现，未改动。
+**hitstop**（`autoload/game.gd`）：`hitstop(d)` 用 `Time.get_ticks_msec()` 墙钟把
+`Engine.time_scale` 拉到 `Tuning.HITSTOP_TIME_SCALE`(0.05) 持续 d 秒后在 `_process`
+恢复 1.0；踩敌 / 受击 / 死亡分别 0.05 / 0.08 / 0.12s；`smoke_mode` 下 no-op（(g)）。
 
-**其余 M8 项（待办）**：hitstop / 屏幕震动 / 一次性特效（尘土 / 烟 / 火花）/ 闪白
-shader / 彩带 / 金币浮动 + 拾取特效 / HUD 跳动；`Audio` 仍 no-op（真音频另接）。
+**屏幕震动**（`scripts/screen_shake.gd`）：`shake(amp, dur)` 经 `CameraFollow.offset`
+施加（(e)），幅值/时长取 `Tuning.SHAKE_STOMP/HURT/DEATH/HARD_LAND`，`SHAKE_RESAMPLE`
+每 1/30s 重采样，`_process` 衰减回零。
+
+**一次性特效**（`scripts/one_shot_fx.gd` + `scenes/fx/one_shot_fx.tscn`）：跳起 / 落地
+尘土、踩敌 poof、金币 sparkle、受击 spark；逐帧 `AtlasTexture`(atlas+region)+`add_frame`
+（(b)），`spawn()` 的 `parent is Node2D` 守卫（(c)）。**受击闪白**：`shaders/flash.gdshader`
+运行时 `load()`，`Game.feedback` 触发。**彩带**（过关）：`goal_flag.gd` CPUParticles2D
+爆发 + `level_complete.gd` 持续雨，`color_ramp` 为 `Gradient`（(f)）。**金币拾取**：
+`coin.gd` sparkle + `+1` 上浮（`COIN_RISE`/`COIN_RISE_TIME`/`COIN_FADE_TIME`）；
+**HUD**：受击心闪、金币 0.1s 弹跳。`Audio` 仍 no-op（真音频不在范围，§10.11）。
+
+**验证**：`tools/verify.sh` 全绿（GUT 95/95 + 冒烟 `SMOKE OK` + 主启动
+`MAIN BOOT OK`）。headless 为 dummy 渲染（截不出像素），桌面真实像素见
+`docs/screenshots/`（标题 / 1-1+HUD / 暂停 / 过关 / Game Over）。
