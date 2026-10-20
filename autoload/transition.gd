@@ -31,3 +31,16 @@ func change_scene(path: String) -> void:
 	_tween.tween_property(_color, "modulate:a", 0.0, Tuning.FADE_TIME)
 	await _tween.finished
 	is_busy = false
+
+
+## §8 M5: 玩家死亡时拉黑幕（0.35 s）——不切场景、不淡回。
+## 重生后的淡回由 M6 处理（change_scene 的第二段 / 后续 fade_from_black）。
+func fade_to_black(duration: float) -> void:
+	if is_busy:
+		return
+	is_busy = true
+	_tween = create_tween()
+	_tween.tween_property(_color, "modulate:a", 1.0, duration)
+	await _tween.finished
+	_color.modulate.a = 1.0
+	is_busy = false

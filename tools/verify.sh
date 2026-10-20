@@ -15,17 +15,19 @@ else
   echo "WARN: Fusion Pixel font or OFL.txt missing; UI uses the default font (see §6.3)"
 fi
 
+echo "== 0c. placeholder generator self-check (size + palette) =="
+python3 tools/gen_placeholders.py 2>&1 | tee "$LOG/gen.log"
+grep -q "all 28 files OK" "$LOG/gen.log" || { echo "FAIL gen_placeholders self-check"; fail=1; }
+
 echo "== 1. import =="
 "$GODOT" --headless --path . --import 2>&1 | tee "$LOG/import.log"
 grep -q "SCRIPT ERROR" "$LOG/import.log" && { echo "FAIL import"; fail=1; }
 
-echo "== 2. check-only =="
-while IFS= read -r f; do
-  out="$("$GODOT" --headless --path . --check-only -s "res://${f#./}" 2>&1)"; rc=$?
-  if [ $rc -ne 0 ] || echo "$out" | grep -qE "SCRIPT ERROR|ERROR"; then
-    echo "$out"; echo "FAIL check-only $f"; fail=1
-  fi
-done < <(find . -name '*.gd' -not -path './addons/*' -not -path './.godot/*' | sort)
+# No standalone `--check-only -s` pass: it cannot see autoload singletons
+# (Game/Audio/Transition) and false-fails every script that references them.
+# Every .gd file is compiled in a real autoload context by steps 3-5 below
+# (GUT loads the test scripts, smoke_run loads game/audio/transition/main,
+# boot loads the title screen), so any compile error fails the run there.
 
 echo "== 3. GUT 9.7.1 =="
 "$GODOT" --headless -d -s --path "$PWD" addons/gut/gut_cmdln.gd \
@@ -42,7 +44,8 @@ grep -q "SMOKE OK" "$LOG/smoke.log" || { echo "FAIL smoke: no SMOKE OK"; fail=1;
 
 echo "== 5. main scene boot =="
 "$GODOT" --headless --path . --fixed-fps 60 --quit-after 300 2>&1 | tee "$LOG/boot.log"
-grep -q "SCRIPT ERROR" "$LOG/boot.log" && { echo "FAIL boot"; fail=1; }
+grep -q "SCRIPT ERROR" "$LOG/boot.log" && { echo "FAIL boot: SCRIPT ERROR"; fail=1; }
+grep -q "MAIN BOOT OK" "$LOG/boot.log" || { echo "FAIL boot: title screen never loaded"; fail=1; }
 
 [ $fail -eq 0 ] && echo "VERIFY PASS" || echo "VERIFY FAIL"
 exit $fail

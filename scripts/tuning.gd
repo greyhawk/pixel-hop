@@ -47,6 +47,8 @@ const PIT_MARGIN := 16            # 玩家 y > limit_bottom + 16 (=208) → 死�
 const FLAG_RAISE := 0.6
 const COMPLETE_PANEL_DELAY := 0.8
 const JINGLE_DELAY := 0.2
+# 重生
+const RESPAWN_IFRAMES := 1.0       # §9.6: 重生无敌 1.0 s（复用受击闪烁节奏）
 # 相机
 const CAMERA_SMOOTHING := true
 const CAMERA_SMOOTHING_SPEED := 7.0
@@ -79,6 +81,14 @@ const ANIM_FALL_VY := 40.0
 const DUST_MIN_VX := 100.0
 const LAND_PUFF_MIN_VY := 200.0
 # UI
-const MENU_INPUT_GRACE := 0.25
+const MENU_INPUT_GRACE := 0.15     # §10.1: 菜单打开后确认的宽限
 const RESULT_INPUT_GRACE := 0.6    # Game Over、关卡完成
 const FADE_TIME := 0.3
+const TITLE_SCROLL_SPEED := 12.0   # §10.2: 标题背景滚动
+const BANNER_SHOW := 1.5
+const BANNER_FADE := 0.3
+const TOAST_SHOW := 1.0
+const TOAST_FADE := 0.2
+const BUBBLE_TWEEN := 0.15
+const COUNTUP_STEP := 0.04
+const TICK_PITCH_STEP := 0.03

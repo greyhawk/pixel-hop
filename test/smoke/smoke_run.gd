@@ -2,8 +2,13 @@ extends Node
 ## Headless smoke driver (spec §13.2). Runs as a standalone scene:
 ##   godot --headless --path . --fixed-fps 60 --quit-after 3600 test/smoke/smoke_run.tscn
 ## Never uses change_scene_to_file (it would unload the driver).
-## M0 scope: autoloads + input map idempotency. Level/UI sections land in M3+.
-
+## M0 scope: autoloads + input map idempotency.
+## M3 scope: instantiate all 3 levels (terrain + entities), no SCRIPT ERROR.
+## M4 scope: Player present in every level; scripted hold-right moves within
+## the map; one-way drop-through; corner correction clears the overhang.
+## M5 scope: per-level entity counts (coins/walkers/spikies/spikes/signs).
+## M6 scope: GameState 状态机、SaveData 临时路径往返、game_over.tscn 实例化。
+## M7 scope: UI 场景冒烟（6 个 UI tscn 实例化 + 主题字体 + 菜单一次选择/确认）。
 var _failures: PackedStringArray = []
 
 
@@ -16,6 +21,12 @@ func _run() -> void:
 	await get_tree().physics_frame
 	_check_autoloads()
 	_check_input_map()
+	await _check_game_state()
+	await _check_levels()
+	await _check_player_movement()
+	await _check_player_drop_through()
+	await _check_player_corner_correction()
+	await _check_ui_scenes()
 	for i in 30:
 		await get_tree().physics_frame
 	if _failures.is_empty():
@@ -34,6 +45,44 @@ func _check_autoloads() -> void:
 		_failures.append("Transition autoload missing")
 	if not is_instance_valid(Audio):
 		_failures.append("Audio autoload missing")
+
+
+func _check_levels() -> void:
+	var packed: PackedScene = load(Game.LEVEL_SCENE)
+	if packed == null:
+		_failures.append("level.tscn failed to load")
+		return
+	for idx in 3:
+		var level_index := idx + 1
+		var level: Level = packed.instantiate()
+		level.level_index = level_index
+		add_child(level)
+		await get_tree().process_frame
+		if level.get_node_or_null("Entities/Spawn") == null:
+			_failures.append("level %d: Spawn marker missing" % level_index)
+		if level.get_node_or_null("Entities/Player") == null:
+			_failures.append("level %d: Player missing" % level_index)
+		if level.get_node_or_null("Entities/Flag") == null:
+			_failures.append("level %d: Flag marker missing" % level_index)
+		var terrain: TileMapLayer = level.get_node_or_null("Terrain") as TileMapLayer
+		if terrain == null:
+			_failures.append("level %d: Terrain TileMapLayer missing" % level_index)
+		else:
+			if terrain.get_used_rect().size.x != Levels.COLS:
+				_failures.append("level %d: Terrain used rect width %d != %d" % [level_index, terrain.get_used_rect().size.x, Levels.COLS])
+		var counts := level.get_entity_counts()
+		var expected_counts: Dictionary = {
+			1: {"coins": 11, "walkers": 1, "spikies": 0, "spikes": 0, "signs": 5},
+			2: {"coins": 17, "walkers": 2, "spikies": 0, "spikes": 0, "signs": 0},
+			3: {"coins": 8, "walkers": 1, "spikies": 2, "spikes": 9, "signs": 0},
+		}[level_index]
+		for key in expected_counts:
+			_check(
+				counts.get(key, -1) == expected_counts[key],
+				"level %d: %s count %d != %d" % [level_index, key, counts.get(key, -1), expected_counts[key]],
+			)
+		level.queue_free()
+	await get_tree().process_frame
 
 
 func _check_input_map() -> void:
@@ -64,6 +113,45 @@ func _check_input_map() -> void:
 	if not before == _snapshot():
 		_failures.append("register_input_map is not idempotent")
 
+## M6: GameState 状态机 + SaveData 临时路径往返 + game_over.tscn 实例化。
+## 全部用自建实例（不依赖 Game.state / Game.save），绝不触发场景切换。
+func _check_game_state() -> void:
+	var gs := GameState.new()
+	_check(gs.lives == 3, "state: default lives=3")
+	_check(gs.hp == 3, "state: default hp=3")
+	_check(gs.current_level == 1, "state: default level 1")
+	_check(gs.coins_total_this_level == 11, "state: level 1 coin total 11")
+	gs.collect_coin()
+	_check(gs.coins_this_level == 1, "state: collect_coin counts")
+	_check(gs.apply_damage() == false, "state: non-lethal hit")
+	_check(gs.hp == 2, "state: hp 2 after hit")
+	_check(gs.on_death() == "respawn", "state: 1st death → respawn")
+	_check(gs.lives == 2 and gs.deaths_this_level == 1, "state: respawn settlement")
+	_check(gs.on_death() == "respawn", "state: 2nd death → respawn")
+	_check(gs.on_death() == "game_over", "state: 3rd death → game_over")
+	gs.retry_after_game_over()
+	_check(gs.lives == 3 and gs.deaths_this_level == 0, "state: retry full reset")
+
+	var tmp := "user://smoke_save.cfg"
+	if FileAccess.file_exists(tmp):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+	var sv := SaveData.new(tmp)
+	_check(sv.unlocked_level == 1 and sv.best_coins_for(1) == -1, "save: missing file → defaults")
+	sv.complete_level(1, 6)
+	_check(sv.unlocked_level == 2, "save: clear unlocks next level")
+	var reloaded := SaveData.new(tmp)
+	_check(reloaded.unlocked_level == 2 and reloaded.best_coins_for(1) == 6, "save: persisted")
+	_check(reloaded.best_coins_for(3) == -1, "save: uncleared level = -1")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+
+	var packed_go: PackedScene = load(Game.GAME_OVER_SCENE)
+	_check(packed_go != null, "game_over.tscn loads")
+	if packed_go != null:
+		var go: Node = packed_go.instantiate()
+		get_tree().root.call_deferred("add_child", go)
+		await get_tree().create_timer(0.1).timeout
+		_check(go.is_inside_tree(), "game_over.tscn instantiates")
+		go.queue_free()
 
 func _has_key(action: String, kc: Key) -> bool:
 	for ev in InputMap.action_get_events(action):
@@ -82,3 +170,158 @@ func _snapshot() -> String:
 		keys.sort()
 		out[action] = keys
 	return JSON.stringify(out)
+
+
+func _check(cond: bool, msg: String) -> void:
+	if not cond:
+		_failures.append(msg)
+
+
+func _instantiate_level(level_index: int) -> Level:
+	var packed: PackedScene = load(Game.LEVEL_SCENE)
+	var level: Level = packed.instantiate()
+	level.level_index = level_index
+	add_child(level)
+	return level
+
+
+func _get_player(level: Level) -> Player:
+	return level.get_node_or_null("Entities/Player") as Player
+
+
+## §13.2 / M4 验收：按住右 120 帧，x 增加且不离开地图（1-1 无坑）。
+func _check_player_movement() -> void:
+	var level := _instantiate_level(1)
+	await get_tree().process_frame
+	var player := _get_player(level)
+	if player == null:
+		_failures.append("movement: Player missing")
+		level.queue_free()
+		await get_tree().process_frame
+		return
+	var scripted := InputSource.ScriptedInput.new()
+	for i in 120:
+		scripted.queue_frame(1, "none")
+	player.input_source = scripted
+	var x0 := player.global_position.x
+	for i in 150:
+		await get_tree().physics_frame
+	var pos := player.global_position
+	_check(pos.x > 100.0, "movement: player x %f did not move right (start %f)" % [pos.x, x0])
+	_check(pos.x <= 640.0, "movement: player x %f left the map" % pos.x)
+	_check(pos.y < 192.0 + Tuning.PIT_MARGIN, "movement: player y %f fell out of the map" % pos.y)
+	level.queue_free()
+	await get_tree().process_frame
+
+
+## §9.4：1-1 的 row8 单向平台（cols 31–34，顶 y=128）。落在平台上，
+## 下压 + 跳（held 分支）→ 穿过平台落到地面 y=160，mask 恢复 FULL。
+func _check_player_drop_through() -> void:
+	var level := _instantiate_level(1)
+	await get_tree().process_frame
+	var player := _get_player(level)
+	if player == null:
+		_failures.append("drop: Player missing")
+		level.queue_free()
+		await get_tree().process_frame
+		return
+	player.position = Vector2(520, 128)
+	player.velocity = Vector2.ZERO
+	var scripted := InputSource.ScriptedInput.new()
+	for i in 2:
+		scripted.queue_frame(0, "none")
+	scripted.queue_frame(0, "down", true)
+	for i in 40:
+		scripted.queue_frame(0, "none")
+	player.input_source = scripted
+	for i in 45:
+		await get_tree().physics_frame
+	_check(player.global_position.y > 130.0, "drop: player y %f did not drop through the one-way strip" % player.global_position.y)
+	_check(player.collision_mask == Player.FULL_MASK, "drop: collision mask %d not restored to %d" % [player.collision_mask, Player.FULL_MASK])
+	level.queue_free()
+	await get_tree().process_frame
+
+
+## §9.5：1-1 顶棚（row8 cols 15–17，y 128–144）。身体 [234,244] 与 col15
+## 重叠恰 4 px（== Tuning.CORNER_CORRECTION）：跳起顶头时应被水平推出并继续上升。
+func _check_player_corner_correction() -> void:
+	var level := _instantiate_level(1)
+	await get_tree().process_frame
+	var player := _get_player(level)
+	if player == null:
+		_failures.append("corner: Player missing")
+		level.queue_free()
+		await get_tree().process_frame
+		return
+	player.position = Vector2(239, 160)
+	player.velocity = Vector2.ZERO
+	var scripted := InputSource.ScriptedInput.new()
+	scripted.queue_frame(0, "down")
+	for i in 12:
+		scripted.queue_frame(0, "none")
+	scripted.queue_frame(0, "up")
+	player.input_source = scripted
+	var min_y := player.global_position.y
+	for i in 25:
+		await get_tree().physics_frame
+		min_y = minf(min_y, player.global_position.y)
+	_check(min_y < 132.0, "corner: player min y %f — did not clear the overhang (corner correction failed)" % min_y)
+	_check(player.global_position.x < 239.0, "corner: player x %f — not pushed off the overhang corner" % player.global_position.x)
+	level.queue_free()
+	await get_tree().process_frame
+
+
+## M7: UI 场景冒烟——逐场景实例化，断言主题 Control（Fusion Pixel 字体）存在，
+## 并对每个 MenuList 驱动一次「移动 + 确认」（各 dispatcher 冒烟下只打印、不切场景）。
+const UI_SCENES: PackedStringArray = [
+	"res://scenes/ui/title_screen.tscn",
+	"res://scenes/ui/game_over.tscn",
+	"res://scenes/ui/hud.tscn",
+	"res://scenes/ui/pause_menu.tscn",
+	"res://scenes/ui/level_complete.tscn",
+	"res://scenes/ui/level_select.tscn",
+]
+
+
+func _check_ui_scenes() -> void:
+	for path in UI_SCENES:
+		var packed: PackedScene = load(path)
+		_check(packed != null, "ui: %s loads" % path)
+		if packed == null:
+			continue
+		var inst: Node = packed.instantiate()
+		get_tree().root.call_deferred("add_child", inst)
+		await get_tree().process_frame
+		await get_tree().process_frame
+		_check(inst.is_inside_tree(), "ui: %s in tree" % path)
+		var themed := _themed_control(inst)
+		_check(themed != null, "ui: %s has themed Control" % path)
+		if themed != null:
+			var font: Font = themed.get_theme_font("font")
+			_check(font != null and font.resource_path == UiTheme.FONT_PATH, "ui: %s font is Fusion Pixel" % path)
+		var menu := _first_menu_list(inst)
+		if menu != null:
+			menu.press_move(1)
+			menu.press_accept()
+		inst.queue_free()
+		await get_tree().process_frame
+
+
+func _themed_control(n: Node) -> Control:
+	if n is Control and (n as Control).theme != null:
+		return n as Control
+	for c in n.get_children():
+		var r := _themed_control(c)
+		if r != null:
+			return r
+	return null
+
+
+func _first_menu_list(n: Node) -> MenuList:
+	for c in n.get_children():
+		if c is MenuList:
+			return c
+		var r := _first_menu_list(c)
+		if r != null:
+			return r
+	return null

@@ -1,3 +1,4 @@
 .godot/
 test_results.xml
 build/
+__pycache__/
