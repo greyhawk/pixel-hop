@@ -151,3 +151,34 @@ Esc 分支同时处理开与关防双触发；`set_enabled(false)` 只屏蔽输�
 **假设与占位**：无新增 Strings 键（M7 文案全部复用 `scripts/ui/strings.gd`）；
 彩带 / 尘土 / 烟 / 火花 / hitstop / 屏幕震动 / 真音频 = M8（`Audio` 仍 no-op）；
 `show_toast` 为 §10.3 预留入口，M7 无调用方。
+
+## M8（进行中）：关卡视差背景（§10.9）
+
+**4 层视差**（`scripts/bg/parallax_bg.gd` + `scenes/bg/parallax_bg.tscn`，`class_name
+ParallaxBg`，D20 代码构建）：`LevelBuilder.build()` 在验证关卡后、地形前实例化为
+`Background` 子节点；`z_index` 全部低于 `Decor`(-10) 与 `Terrain`(0)，位于其后。每张
+320px 宽，`repeat_size=(320,0)` + `repeat_times=3` 自动横向平铺（960px ≫ 320px 视口，
+无缝隙）并随相机视差；`repeat_size.y=0` 不纵向平铺；sprite `local_x=160` 为 320px
+纹理中心（不手摆 x）。
+
+| 层 | 顶部落点(screen y) | scroll_scale | autoscroll | z |
+|---|---|---|---|---|
+| `bg_sky` | 0 | (0,0) | (0,0) | -100 |
+| `bg_far_mountains` | 70 | (0.15,0.05) | (0,0) | -85 |
+| `bg_clouds` | 10 | (0.25,0) | (-6,0) | -90 |
+| `bg_mid_hills` | 112 | (0.4,0.1) | (0,0) | -70 |
+
+`autoscroll` 单位 = 像素/秒（4.7.2 实测云向左 −6 px/s）。sprite `local_y`（90 / 118.6 /
+34 / 145.2）按「静止相机」世界中心 (160,102)（玩家落地被 clamp 到关卡底）调校，使各层
+顶部落在规格 screen-top；相机纵向范围仅 [90,102]，跳跃上移时各层按 `scroll_scale.y`
+产生纵向视差（预期行为，非 bug）。`bg_sky` `scroll_scale=(0,0)` = 屏幕固定（随相机
+1:1，天空不滚动）。
+
+**验证**：真实关卡 1-1 断言（静止 + 最右端相机）——4 层 top-y 精确命中 0/70/10/112、
+z 序 −100/−85/−90/−70、纹理宽 320、平铺覆盖视口；云漂移 −6.06 px/s。`tools/verify.sh`
+全绿（GUT 92/92 + 冒烟 `SMOKE OK` + 主启动 `MAIN BOOT OK`）。headless 渲染为 dummy
+（像素截图空白），真实像素观感需显示器跑游戏核对；标题界面视差（`title_screen.gd`）
+为既有实现，未改动。
+
+**其余 M8 项（待办）**：hitstop / 屏幕震动 / 一次性特效（尘土 / 烟 / 火花）/ 闪白
+shader / 彩带 / 金币浮动 + 拾取特效 / HUD 跳动；`Audio` 仍 no-op（真音频另接）。

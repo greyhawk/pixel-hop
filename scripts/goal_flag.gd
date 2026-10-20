@@ -11,6 +11,7 @@ const CLOTH_START_Y := -17.0
 const CLOTH_TOP_Y := -43.0
 
 var _done := false
+var _confetti: CPUParticles2D
 
 
 func _ready() -> void:
@@ -20,6 +21,7 @@ func _ready() -> void:
 	var cloth := $Cloth as AnimatedSprite2D
 	cloth.position = Vector2(6, CLOTH_START_Y)
 	_build_cloth_frames(cloth)
+	_build_confetti()
 
 
 ## §6.2: flag_cloth_sheet.png 为 48×10 的 4 帧横排（12×10/帧），手动切图。
@@ -50,6 +52,7 @@ func _on_body_entered(body: Node) -> void:
 	)
 	player.set_victory()
 	_raise_cloth()
+	_emit_confetti()
 	completed.emit()
 
 
@@ -59,3 +62,30 @@ func _raise_cloth() -> void:
 	var tween := create_tween()
 	tween.tween_property(cloth, "position:y", CLOTH_TOP_Y, Tuning.FLAG_RAISE) \
 		.set_trans(Tween.TRANS_SINE)
+
+
+## §10.10 一次性彩带喷发：杆顶向上、24 粒、重力回落。
+func _emit_confetti() -> void:
+	if _confetti != null:
+		_confetti.restart()
+
+
+## 构建一次性彩带粒子（_ready 调用）。杆脚为原点，喷发点 (0,-48)=杆顶。
+func _build_confetti() -> void:
+	var c := CPUParticles2D.new()
+	c.position = Vector2(0, -48)
+	c.emitting = false
+	c.one_shot = true
+	c.amount = 24
+	c.lifetime = 1.0
+	c.direction = Vector2(0, -1)
+	c.spread = 30.0
+	c.initial_velocity_min = 80.0
+	c.initial_velocity_max = 120.0
+	c.gravity = Vector2(0, 200)
+	var tex := load("res://assets/sprites/fx/confetti_px.png") as Texture2D
+	if tex != null:
+		c.texture = tex
+	c.color_ramp = OneShotFx.confetti_ramp()
+	add_child(c)
+	_confetti = c

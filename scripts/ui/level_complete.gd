@@ -28,6 +28,7 @@ var _perfect_label: Label
 var _menu: MenuList
 var _countup := 0
 var _acc := 0.0
+var _confetti: CPUParticles2D
 
 
 func _ready() -> void:
@@ -64,6 +65,8 @@ func _process(_delta: float) -> void:
 
 
 func _refresh_text() -> void:
+	if _confetti != null:
+		_confetti.emitting = _is_last
 	_title_label.text = Strings.CLEAR_TITLE if not _is_last else Strings.ALL_CLEAR_TITLE
 	_refresh_coin_label()
 	var secs := int(floorf(maxf(time, 0.0)))
@@ -164,6 +167,24 @@ func _build_ui() -> void:
 	_menu.position = Vector2(160, 124)
 	ui.add_child(_menu)
 	_menu.accepted.connect(_do_action)
+	# M8/§10.10: 末关连续彩带雨（emitting 由 _refresh_text 按 _is_last 开关）。
+	var confetti := CPUParticles2D.new()
+	confetti.position = Vector2(160, 10)
+	confetti.emitting = false
+	confetti.one_shot = false
+	confetti.amount = 40
+	confetti.lifetime = 1.2
+	confetti.direction = Vector2(0, 1)
+	confetti.spread = 40.0
+	confetti.initial_velocity_min = 40.0
+	confetti.initial_velocity_max = 90.0
+	confetti.gravity = Vector2(0, 120)
+	var ctex := load("res://assets/sprites/fx/confetti_px.png") as Texture2D
+	if ctex != null:
+		confetti.texture = ctex
+	confetti.color_ramp = OneShotFx.confetti_ramp()
+	add_child(confetti)
+	_confetti = confetti
 
 
 func _do_action(idx: int) -> void:

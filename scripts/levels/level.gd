@@ -16,6 +16,7 @@ var _camera: CameraFollow
 var _time_running := false
 var _hud: CanvasLayer
 var _pause_menu: CanvasLayer
+var _screen_shake: ScreenShake
 
 func _ready() -> void:
 	if level_index < 1:
@@ -24,6 +25,12 @@ func _ready() -> void:
 	LevelBuilder.build(self, level_index)
 	_player = get_node_or_null("Entities/Player") as Player
 	_camera = get_node_or_null("Camera") as CameraFollow
+	# M8: 屏幕震动（注入相机，镜像 offset；camera 可空——无相机时不镜像）。
+	_screen_shake = ScreenShake.new()
+	_screen_shake.name = "ScreenShake"
+	_screen_shake.camera = _camera
+	add_child(_screen_shake)
+	Game.screen_shake = _screen_shake
 	if _player:
 		_player.died.connect(_on_player_died)
 		if Game.respawn_pending:
@@ -37,6 +44,12 @@ func _ready() -> void:
 	add_child(_hud)
 	_pause_menu = (load("res://scenes/ui/pause_menu.tscn") as PackedScene).instantiate()
 	add_child(_pause_menu)
+
+
+func _exit_tree() -> void:
+	# M8: 本关卡拥有 Game.screen_shake；离开场景时清空，避免跨场景悬空引用。
+	if _screen_shake != null and is_instance_valid(_screen_shake) and Game.screen_shake == _screen_shake:
+		Game.screen_shake = null
 
 
 ## M6: 金币计数 + 终点旗过关路由（回调里的场景切换在冒烟下只打印，见 Game）。

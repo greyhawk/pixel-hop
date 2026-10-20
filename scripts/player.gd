@@ -35,6 +35,9 @@ var _sprite: AnimatedSprite2D
 var _motor := PlayerMotor.new()
 var _drop_timer := 0.0
 var _was_on_floor := true
+## M8: 受击闪白材质与跑动尘土。
+var _flash_mat: ShaderMaterial = null
+var _dust: CPUParticles2D = null
 
 
 func _ready() -> void:
@@ -44,6 +47,9 @@ func _ready() -> void:
 	_build_frames()
 	_sprite.animation_finished.connect(_on_animation_finished)
 	_sprite.play("idle")
+	# M8: 受击闪白 + 跑动尘土。
+	_setup_flash()
+	_setup_dust()
 
 
 ## §5.2 玩家精灵表（6×7×16 px）：row0 idle、row1 run、row2 jump/fall、
@@ -99,8 +105,13 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	# 3. 顶头角落修正（§9.5）
 	_corner_correction(vy_before)
-	# 4. 落地事件（M8 接土星）
+	# 4. 落地 / 起跳事件 + M8 尘土
 	var on_floor := is_on_floor()
+	# M8: 起跳尘土（离开地面向上瞬间）。
+	if _was_on_floor and not on_floor and velocity.y < 0.0:
+		_spawn_jump_puff()
+	# M8: 跑动尘土（地面、非死亡、横向速度 > DUST_MIN_VX）。
+	_set_running_dust(on_floor and not dead and absf(velocity.x) > Tuning.DUST_MIN_VX)
 	if not _was_on_floor and on_floor and vy_before >= 0.0:
 		landed.emit(vy_before)
 		_stomp_chain = 0
@@ -108,6 +119,10 @@ func _physics_process(delta: float) -> void:
 			_sprite.play("victory")
 		elif vy_before >= Tuning.LAND_PUFF_MIN_VY:
 			_sprite.play("land")
+			_spawn_land_puff()
+			# M8: 硬落地震屏（下落速度 >= 300，§8 注释）。
+			if vy_before >= 300.0:
+				Game.feedback(Tuning.SHAKE_HARD_LAND)
 	_was_on_floor = on_floor
 	# 5. 朝向与动画
 	_update_facing(dir)
@@ -129,6 +144,11 @@ func reset_state() -> void:
 	_death_timer = 0.0
 	_fade_started = false
 	_stomp_chain = 0
+	# M8: 重置受击闪白与尘土。
+	if _flash_mat != null:
+		_flash_mat.set_shader_parameter("flash_amount", 0.0)
+	if _dust != null:
+		_dust.emitting = false
 	visible = true
 	_sprite.visible = true
 	_sprite.play("idle")
@@ -153,8 +173,13 @@ func damage(source: Vector2, is_spike: bool) -> void:
 	velocity = Vector2(dir_sign * Tuning.KNOCKBACK.x, Tuning.KNOCKBACK.y)
 	Audio.play_sfx("sfx_spike" if is_spike else "sfx_hurt")
 	hurt.emit()
+	# M8: 受击闪白 + 火花；死亡由 die 统一震屏，否则受击震屏。
+	_flash_hit()
+	OneShotFx.spawn_named(get_parent(), global_position, "hit_spark")
 	if hp <= 0:
 		die(false)
+	else:
+		Game.feedback(Tuning.SHAKE_HURT)
 
 
 ## §8: 踩敌弹跳（-220 / 按住跳 -300）；连续踩踏音高 ×STOMP_PITCH_STEP，落地重置。
@@ -165,6 +190,7 @@ func stomp_bounce(jump_held: bool) -> void:
 	velocity.y = Tuning.STOMP_BOUNCE_HELD if jump_held else Tuning.STOMP_BOUNCE
 	_stomp_chain += 1
 	Audio.play_sfx("sfx_stomp", pow(Tuning.STOMP_PITCH_STEP, _stomp_chain))
+	Game.feedback(Tuning.SHAKE_STOMP)
 	stomped.emit()
 
 
@@ -182,6 +208,8 @@ func die(from_pit: bool) -> void:
 	if dead or victory:
 		return
 	dead = true
+	# M8: 死亡震屏/hitstop（§15.4）。
+	Game.feedback(Tuning.SHAKE_DEATH)
 	_death_timer = 0.0
 	_iframe_timer = 0.0
 	_hurt_lock = 0.0
@@ -275,3 +303,65 @@ func _corner_correction(vy_before: float) -> void:
 		global_position.x += sign * overlap
 		velocity.y = vy_before
 		break
+
+## M8: 受击闪白——给 Sprite 套 flash.gdshader，flash_amount 1→0 衰减。
+func _setup_flash() -> void:
+	var shader := load("res://shaders/flash.gdshader") as Shader
+	if shader == null:
+		return
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	mat.set_shader_parameter("flash_amount", 0.0)
+	_flash_mat = mat
+	_sprite.material = mat
+
+
+func _flash_hit() -> void:
+	if _flash_mat == null:
+		return
+	_flash_mat.set_shader_parameter("flash_amount", 1.0)
+	var tw := create_tween()
+	tw.tween_method(_set_flash, 1.0, 0.0, Tuning.HURT_FLASH)
+
+
+func _set_flash(v: float) -> void:
+	if _flash_mat != null:
+		_flash_mat.set_shader_parameter("flash_amount", v)
+
+
+## M8: 跑动尘土（CPUParticles2D，地面 + 横向速度 > DUST_MIN_VX 时发射）。
+func _setup_dust() -> void:
+	var particles := CPUParticles2D.new()
+	particles.name = "Dust"
+	particles.emitting = false
+	particles.one_shot = false
+	particles.amount = 6
+	particles.lifetime = 0.3
+	particles.direction = Vector2(-1.0, -0.6)
+	particles.spread = 20.0
+	particles.initial_velocity_min = 10.0
+	particles.initial_velocity_max = 24.0
+	particles.gravity = Vector2(0.0, 120.0)
+	particles.scale_amount_min = 0.6
+	particles.scale_amount_max = 1.2
+	var tex := load("res://assets/sprites/fx/dust_px.png") as Texture2D
+	if tex != null:
+		particles.texture = tex
+	add_child(particles)
+	_dust = particles
+
+
+func _set_running_dust(active: bool) -> void:
+	if _dust == null:
+		return
+	_dust.emitting = active
+	if active:
+		_dust.direction = Vector2(-float(facing), -0.6)
+
+
+func _spawn_jump_puff() -> void:
+	OneShotFx.spawn_named(get_parent(), global_position, "jump_puff")
+
+
+func _spawn_land_puff() -> void:
+	OneShotFx.spawn_named(get_parent(), global_position, "land_puff")

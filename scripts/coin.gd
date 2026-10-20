@@ -71,9 +71,30 @@ func _on_body_entered(body: Node) -> void:
 	set_deferred("monitoring", false)
 	Audio.play_sfx("sfx_coin", _next_pitch())
 	collected.emit()
+	OneShotFx.spawn_named(get_parent(), global_position, "coin_sparkle")
+	_spawn_plus_one(global_position)
 	var tween := create_tween()
 	tween.tween_property(_sprite, "offset:y", -Tuning.COIN_RISE, Tuning.COIN_RISE_TIME) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	tween.parallel().tween_property(_sprite, "modulate:a", 0.0, Tuning.COIN_FADE_TIME) \
 		.set_delay(Tuning.COIN_RISE_TIME - Tuning.COIN_FADE_TIME)
 	tween.tween_callback(queue_free)
+
+
+## M8: "+1" 飘字——金币世界坐标上方上浮 8 px 并淡出 0.4 s 后移除。
+func _spawn_plus_one(world_pos: Vector2) -> void:
+	var parent := get_parent()
+	if parent == null:
+		return
+	var label := Label.new()
+	label.text = "+1"
+	label.add_theme_color_override("font_color", Color("#ffcd75"))
+	label.add_theme_font_size_override("font_size", 8)
+	label.position = parent.to_local(world_pos) + Vector2(-4, -12)
+	label.z_index = 20
+	parent.add_child(label)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(label, "position:y", label.position.y - 8.0, 0.4)
+	tw.tween_property(label, "modulate:a", 0.0, 0.4)
+	tw.chain().tween_callback(label.queue_free)

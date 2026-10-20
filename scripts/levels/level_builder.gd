@@ -12,6 +12,7 @@ static func build(root: Node2D, level_index: int) -> void:
 	if not Levels.validate(rows):
 		push_error("LevelBuilder.build: invalid map for level %d" % level_index)
 		return
+	_build_background(root)
 	var terrain := TileMapLayer.new()
 	terrain.name = "Terrain"
 	terrain.tile_set = TilesetFactory.build_tileset()
@@ -189,6 +190,12 @@ static func _entity_pos(ch: String, c: int, r: int) -> Vector2:
 		_:
 			return Vector2(c * TILE + 8, (r + 1) * TILE)
 
+
+## §10.9: 4 层视差背景（M8），代码构建；z -100..-70 位于地形之后。
+static func _build_background(root: Node2D) -> void:
+	var bg := preload("res://scenes/bg/parallax_bg.tscn").instantiate()
+	bg.name = "Background"
+	root.add_child(bg)
 
 ## §7.2: two StaticBody2D walls whose collision faces sit exactly
 ## at x=0 and x=640 (world_solid layer, no mask).

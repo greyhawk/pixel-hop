@@ -110,6 +110,7 @@ func _stomp(player: Player) -> void:
 	set_deferred("collision_mask", 0)
 	_sprite.play("squashed")
 	player.stomp_bounce(player.input_source.jump_held())
+	OneShotFx.spawn_named(get_parent(), global_position, "poof")
 	_squash_tween = create_tween()
 	_squash_tween.tween_interval(Tuning.WALKER_SQUASH_TIME)
 	_squash_tween.tween_callback(queue_free)
